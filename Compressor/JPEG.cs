@@ -51,15 +51,15 @@ namespace Compressor
 
 
         // y, cb, cr channels. each channel is a two dimension array
-        public struct YCbCrSubSamples
+        public struct YCbCrSubSample
         {
             public double[,] Y, Cb, Cr;
         }
 
         // sub sampling Cb and Cr channel
-        public static YCbCrSubSamples SubSample(YCbCr[,] yCbCrs)
+        public static YCbCrSubSample SubSample(YCbCr[,] yCbCrs)
         {
-            YCbCrSubSamples chans;
+            YCbCrSubSample chans;
             int h = yCbCrs.GetLength(0), w = yCbCrs.GetLength(1);
 
             chans.Y = new double[h, w];
@@ -86,7 +86,7 @@ namespace Compressor
         }
 
         // duplicate cb cr channels to reproduce ycbcr pixels
-        public static YCbCr[,] UpSample(YCbCrSubSamples chans)
+        public static YCbCr[,] UpSample(YCbCrSubSample chans)
         {
             int h = chans.Y.GetLength(0), w = chans.Y.GetLength(1);
             YCbCr[,] yCbCrs = new YCbCr[h, w];
@@ -533,9 +533,9 @@ namespace Compressor
             YCbCr[,] yCbCrs = ColorChannel.ReadYCbCrs(image);
 
             // 2. sub sample
-            YCbCrSubSamples yCbCrSubSamples = SubSample(yCbCrs);
+            YCbCrSubSample yCbCrSubSamples = SubSample(yCbCrs);
 
-            // for each channel, run a sperate thread for DCT, quantized, zigzag sampling, and RLE
+            // for each channel, run a sperate thread for DCT, quantized, zigzag sampling
             var tasks = new Task[3];
             sbyte[] yStream = null, cbStream = null, crStream = null;
 
@@ -568,7 +568,7 @@ namespace Compressor
 
         public static Bitmap Decompress(int height, int width, byte[] compressedData)
         {
-            YCbCrSubSamples yCbCrSubSamples = DecodeImgData(height, width, compressedData);
+            YCbCrSubSample yCbCrSubSamples = DecodeCompressedBytes(height, width, compressedData);
 
             // up sample
             YCbCr[,] yCbCrs = UpSample(yCbCrSubSamples);
@@ -587,14 +587,14 @@ namespace Compressor
             return img;
         }
 
-        public static YCbCrSubSamples DecodeImgData(int height, int width, byte[] data)
+        public static YCbCrSubSample DecodeCompressedBytes(int height, int width, byte[] data)
         {
             sbyte[] decoded = RunLengthDecode(data); // data including paddings
 
-            return DecodeImgData(height, width, decoded);
+            return SeparateYCbCrFromSbytes(height, width, decoded);
         }
 
-        public static YCbCrSubSamples DecodeImgData(int height, int width, sbyte[] decoded)
+        public static YCbCrSubSample SeparateYCbCrFromSbytes(int height, int width, sbyte[] decoded)
         {
 
             // y channel dimension after 8*8 bloks padding
@@ -617,7 +617,7 @@ namespace Compressor
             sbyte[] crStream = new sbyte[cPaddedH * cPaddedW];
             Array.Copy(decoded, yStream.Length + cbStream.Length, crStream, 0, crStream.Length);
 
-            YCbCrSubSamples channels;
+            YCbCrSubSample channels;
             channels.Y = null; channels.Cb = null; channels.Cr = null;
 
             // for each sbyte array channel do: zigzag, quantized, IDCT to get two dimension array

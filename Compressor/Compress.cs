@@ -49,8 +49,6 @@ namespace Compressor
             ImageData file = ReadCompressImage(inFile);
 
             return JPEG.Decompress(file.Height, file.Width, file.Data);
-
-            //image.Save(outFile, System.Drawing.Imaging.ImageFormat.Png);
         }
 
         public static CompressResult CompressIPframes(string iFreamFile, string pFrameFile, string outFile)
@@ -109,6 +107,9 @@ namespace Compressor
             img.Width = reader.ReadInt32();
             int numOfByte = reader.ReadInt32();
             img.Data = reader.ReadBytes(numOfByte);
+
+            reader.Close();
+            fs.Close();
 
             return img;
         }
@@ -179,6 +180,9 @@ namespace Compressor
 
             numOfByte = reader.ReadInt32();
             imgs.Pframe = reader.ReadBytes(numOfByte);
+
+            reader.Close();
+            fs.Close();
 
             return imgs;
         }

@@ -16,18 +16,18 @@ namespace Compressor
             I, P
         }
 
-        private int height;
-        private int width;
+        private readonly int FrameHeight;
+        private readonly int FrameWidth;
 
         public MPEG(int height, int width)
         {
-            this.height = height;
-            this.width = width;
+            FrameHeight = height;
+            FrameWidth = width;
         }
 
-        private YCbCrSubSamples frameMemory;
+        private YCbCrSubSample frameMemory;
 
-        private readonly int N = 8;
+        const int N = 8;
 
         public byte[] Compress(Bitmap frame, FrameType type)
         {
@@ -45,7 +45,7 @@ namespace Compressor
         private byte[] CompressIframe(Bitmap bitmap)
         {
             YCbCr[,] yCbCrs = ColorChannel.ReadYCbCrs(bitmap);
-            YCbCrSubSamples yCbCrSubSamples = JPEG.SubSample(yCbCrs);
+            YCbCrSubSample yCbCrSubSamples = JPEG.SubSample(yCbCrs);
 
             //DCT subquantized
             // for each channel, run a sperate thread for DCT, quantized, zigzag sampling, and RLE
@@ -100,7 +100,7 @@ namespace Compressor
         private byte[] CompressPframe(Bitmap bitmap)
         {
             YCbCr[,] yCbCrs = ColorChannel.ReadYCbCrs(bitmap);
-            YCbCrSubSamples yCbCrSubSamples = JPEG.SubSample(yCbCrs);
+            YCbCrSubSample yCbCrSubSamples = JPEG.SubSample(yCbCrs);
 
             // motion vecotr estimate
             var mv = new MotionVector(15);
@@ -124,20 +124,20 @@ namespace Compressor
             });
             Task.WaitAll(tasks);
 
-            // upquantized IDCT, add to frame memory
-            //int yHeight = yCbCrSubSamples.Y.GetLength(0), yWidth = yCbCrSubSamples.Y.GetLength(1), cHeight = yCbCrSubSamples.Cb.GetLength(0), cWidth = yCbCrSubSamples.Cb.GetLength(1);
-            //tasks[0] = Task.Factory.StartNew(() =>
-            //{
-            //    frameMemory.Y = UpQuantizedIDCT(yHeight, yWidth, yQuantized, LuminanceQuantizationTable);
-            //});
-            //tasks[1] = Task.Factory.StartNew(() =>
-            //{
-            //    frameMemory.Cb = UpQuantizedIDCT(cHeight, cWidth, cbQuantized, ChrominanceQuantizationTable);
-            //});
-            //tasks[2] = Task.Factory.StartNew(() =>
-            //{
-            //    frameMemory.Cr = UpQuantizedIDCT(cHeight, cWidth, crQuantized, ChrominanceQuantizationTable);
-            //});
+            //upquantized IDCT, add to frame memory
+            int yHeight = yCbCrSubSamples.Y.GetLength(0), yWidth = yCbCrSubSamples.Y.GetLength(1), cHeight = yCbCrSubSamples.Cb.GetLength(0), cWidth = yCbCrSubSamples.Cb.GetLength(1);
+            tasks[0] = Task.Factory.StartNew(() =>
+            {
+                yCbCrSubSamples.Y = UpQuantizedIDCT(yHeight, yWidth, yQuantized, LuminanceQuantizationTable);
+            });
+            tasks[1] = Task.Factory.StartNew(() =>
+            {
+                yCbCrSubSamples.Cb = UpQuantizedIDCT(cHeight, cWidth, cbQuantized, ChrominanceQuantizationTable);
+            });
+            tasks[2] = Task.Factory.StartNew(() =>
+            {
+                yCbCrSubSamples.Cr = UpQuantizedIDCT(cHeight, cWidth, crQuantized, ChrominanceQuantizationTable);
+            });
 
             // zigzag RLE differences
             sbyte[] yStream = ZigZagTransform(yQuantized);
@@ -156,11 +156,10 @@ namespace Compressor
             cbStream.CopyTo(data, yStream.Length + vecotrDiffs.Vectors.Length * 2);
             crStream.CopyTo(data, yStream.Length + cbStream.Length + vecotrDiffs.Vectors.Length * 2);
 
-            //Task.WaitAll(tasks);
-
+            Task.WaitAll(tasks);
+            AddDifferencesToMemoryFrame(yCbCrSubSamples, vecotrDiffs.Vectors); // update frame memory
             return RunLengthEncode(data);
         }
-
 
         public Bitmap Decompress(byte[] bs, FrameType type)
         {
@@ -177,76 +176,65 @@ namespace Compressor
 
         private Bitmap DecompressIFrame(byte[] bs)
         {
-            frameMemory = DecodeImgData(height, width, bs);
-
-            // up sample
+            frameMemory = DecodeCompressedBytes(FrameHeight, FrameWidth, bs);
             YCbCr[,] yCbCrs = UpSample(frameMemory);
-
-            // change to RGB and write to bitmap
-            int h = yCbCrs.GetLength(0), w = yCbCrs.GetLength(1);
-            Bitmap img = new Bitmap(w, h, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-
-            for (int row = 0; row < h; ++row)
-            {
-                for (int col = 0; col < w; ++col)
-                {
-                    img.SetPixel(col, row, ColorChannel.YcbcrToRgb(yCbCrs[row, col]));
-                }
-            }
-            return img;
+            return ColorChannel.CreateBitmapFromYCbCr(yCbCrs);
         }
 
         private Bitmap DecompressPFrame(byte[] bs)
         {
-            int decodeIndex = 0;
+            int index = 0; // sbytes index
             sbyte[] decoded = RunLengthDecode(bs); // data including paddings
 
-            int height = frameMemory.Y.GetLength(0);
-            int width = frameMemory.Y.GetLength(1);
-
-            int h = (int)Math.Ceiling((double)height / N);
-            int w = (int)Math.Ceiling((double)width / N);
-
             // read in vectors
-            var vectors = new Vector[h*w];
-
+            var vectors = new Vector[(int)Math.Ceiling((double)FrameHeight / N) * (int)Math.Ceiling((double)FrameWidth / N)];
             for (int i = 0; i < vectors.Length; ++i)
             {
-                vectors[i].x = decoded[decodeIndex++];
-                vectors[i].y = decoded[decodeIndex++];
+                vectors[i].x = decoded[index++];
+                vectors[i].y = decoded[index++];
             }
 
-            var data = new sbyte[decoded.Length - decodeIndex];
-            Array.Copy(decoded, decodeIndex, data, 0, data.Length);
+            // ycbcr differences
+            var data = new sbyte[decoded.Length - index];
+            Array.Copy(decoded, index, data, 0, data.Length);
 
-            YCbCrSubSamples diffs = DecodeImgData(height, width, data);
+            YCbCrSubSample diffs = SeparateYCbCrFromSbytes(FrameHeight, FrameWidth, data); // pframe diffs
+            AddDifferencesToMemoryFrame(diffs, vectors);
 
+            YCbCr[,] yCbCrs = UpSample(frameMemory);
+            return ColorChannel.CreateBitmapFromYCbCr(yCbCrs);
+        }
+
+        private void AddDifferencesToMemoryFrame(YCbCrSubSample diffs, Vector[] vectors)
+        {
             int vectorIndex = 0;
-            --width; --height;
 
-            for (int row = 0; row <= height; row += N)
+            int yHeight = FrameHeight - 1;
+            int yWidth = FrameWidth - 1;
+            int cHeight = yHeight >> 1, cWidth = yWidth >> 1; // cb cr
+
+            for (int row = 0; row <= yHeight; row += N)
             {
-                for (int col = 0; col <= width; col += N)
+                for (int col = 0; col <= yWidth; col += N)
                 {
                     Vector v = vectors[vectorIndex++];
 
-                    for (int Y = row, YB = row + N; Y < YB && Y <= height; ++Y)
+                    for (int Y = row, yBound = row + N; Y < yBound && Y <= yHeight; ++Y)
                     {
-                        for (int X = col, XB = col + N; X < XB && X <= width; ++X)
+                        for (int X = col, xBound = col + N; X < xBound && X <= yWidth; ++X)
                         {
-                            int ry = Math.Max(0, Math.Min(Y - v.y, height));
-                            int rx = Math.Max(0, Math.Min(X - v.x, width));
+                            int ry = Math.Max(0, Math.Min(Y - v.y, yHeight));
+                            int rx = Math.Max(0, Math.Min(X - v.x, yWidth));
                             diffs.Y[Y, X] += frameMemory.Y[ry, rx];
                         }
                     }
 
-                    int ch = height >> 1, cw = width >> 1;
-                    for (int Y = (row >> 1), YB = Y + (N >> 1); Y < YB && Y <= ch; ++Y)
+                    for (int Y = (row >> 1), yBound = Y + (N >> 1); Y < yBound && Y <= cHeight; ++Y)
                     {
-                        for (int X = (col >> 1), XB = X + (N >> 1); X < XB && X <= cw; ++X)
+                        for (int X = (col >> 1), xBound = X + (N >> 1); X < xBound && X <= cWidth; ++X)
                         {
-                            int ry = Math.Max(0, Math.Min(Y - v.y, ch));
-                            int rx = Math.Max(0, Math.Min(X - v.x, cw));
+                            int ry = Math.Max(0, Math.Min(Y - v.y, cHeight));
+                            int rx = Math.Max(0, Math.Min(X - v.x, cWidth));
                             diffs.Cb[Y, X] += frameMemory.Cb[ry, rx];
                             diffs.Cr[Y, X] += frameMemory.Cr[ry, rx];
                         }
@@ -257,20 +245,9 @@ namespace Compressor
 
             frameMemory = diffs;
 
-            YCbCr[,] yCbCrs = UpSample(diffs);
-
-            // change to RGB and write to bitmap
-            Bitmap img = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
-
-            for (int row = 0; row < height; ++row)
-            {
-                for (int col = 0; col < width; ++col)
-                {
-                    img.SetPixel(col, row, ColorChannel.YcbcrToRgb(yCbCrs[row, col]));
-                }
-            }
-            return img;
-
         }
+
+
     }
+
 }

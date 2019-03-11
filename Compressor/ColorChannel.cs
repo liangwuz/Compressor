@@ -65,6 +65,25 @@ namespace Compressor
             }
             return rgbs;
         }
+
+        public static Bitmap CreateBitmapFromYCbCr(YCbCr[,] yCbCrs)
+        {
+            int height = yCbCrs.GetLength(0);
+            int width = yCbCrs.GetLength(1);
+
+            // change to RGB and write to bitmap
+            Bitmap img = new Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+
+            for (int row = 0; row < height; ++row)
+            {
+                for (int col = 0; col < width; ++col)
+                {
+                    img.SetPixel(col, row, YcbcrToRgb(yCbCrs[row, col]));
+                }
+            }
+            return img;
+
+        }
     }
 
 }

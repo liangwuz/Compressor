@@ -23,8 +23,8 @@ namespace Compressor
             public double[,] CrDiffs;
         }
 
-        private readonly int N = 8;
-        private int P;
+        const int N = 8;
+        private readonly int P;
 
         // microblock size N and serach window 2p+1
         public MotionVector(int _P)
@@ -32,20 +32,22 @@ namespace Compressor
             P = _P;
         }
 
-        public EstimateResult Estimate(YCbCrSubSamples reference, YCbCrSubSamples target)
+        // estimate best match using 2d logorithmic search
+        public EstimateResult Estimate(YCbCrSubSample reference, YCbCrSubSample target)
         {
+            // image dimension
             int height = reference.Y.GetLength(0);
             int width = reference.Y.GetLength(1);
 
-            // dimension of 8*8 blocks to fill the origin channel
+            // number of 8*8 blocks to fill the y channel
             int h = (int)Math.Ceiling((double)height / N);
             int w = (int)Math.Ceiling((double)width / N);
 
-            int resIndex = 0;
             var result = new EstimateResult { };
+            int vectorIndex = 0;
             result.Vectors = new Vector[h*w];
 
-            // dimension with paddings if origin image is not multiples of 8
+            // y channel with paddings if origin image is not multiples of 8
             h  <<= 3;
             w <<= 3;
             result.YDiffs = new double[h, w];
@@ -58,6 +60,8 @@ namespace Compressor
 
             // dec to prevent -1 calculation inside the loop
             --width; --height;
+            // cb cr height and width
+            int cHeight = height >> 1, cWidth = width >> 1;
 
             for (int row = 0; row <= height; row += N)
             {
@@ -130,14 +134,12 @@ namespace Compressor
                     }
 
                     // cb cr
-                    int ch = height >> 1, cw = width >> 1;
-                    for (int Y = row >> 1, YB = Y + (N >> 1); Y < YB && Y < ch; ++Y)
+                    for (int Y = row >> 1, YB = Y + (N >> 1); Y < YB && Y < cHeight; ++Y)
                     {
-                        for (int X = col >> 1, XB = X + (N >> 1); X < XB && X < cw; ++X)
+                        for (int X = col >> 1, XB = X + (N >> 1); X < XB && X < cWidth; ++X)
                         {
-                            // boundary check needed
-                            int ry = Math.Max(0, Math.Min(Y - mv.y, ch));
-                            int rx = Math.Max(0, Math.Min(X - mv.x, cw));
+                            int ry = Math.Max(0, Math.Min(Y - mv.y, cHeight));
+                            int rx = Math.Max(0, Math.Min(X - mv.x, cWidth));
                             result.CbDiffs[Y, X] = target.Cb[Y, X] - reference.Cb[ry, rx];
                             result.CrDiffs[Y, X] = target.Cr[Y, X] - reference.Cr[ry, rx];
                         }
@@ -151,7 +153,7 @@ namespace Compressor
                             result.YDiffs[Y, X] = min.DifferenceBlock[_y, _x];
                         }
                     }
-                    result.Vectors[resIndex++] = mv;
+                    result.Vectors[vectorIndex++] = mv;
                 }
             }
 
