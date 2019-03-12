@@ -5,18 +5,30 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Compressor"
         mc:Ignorable="d"
-        Title="Compressor" Height="450" Width="800">
+        Title="Compressor" Height="563.317" Width="506.9">
     <Grid>
-        <ToolBarTray Background="DarkGray" Height="30" VerticalAlignment="Top">
-            <ToolBar Name="MyToolbar" Width="800" Height="30" >
-                <Button Background="LightSkyBlue" Content="Compress JPEG" Click="CompressJpeg_Click" />
-                <Button Background="LightSkyBlue" Content="Decompress JPEG" Click="DeCompressJpeg_Click"/>
-                <Button Background="LightSkyBlue" Content="Compress MPEG" Click="CompressMpeg_Click" />
-                <Button Background="LightSkyBlue" Content="Decompress MPEG" Click="DecompressMpeg_Click" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="1*" />
+            <RowDefinition Height="20*" />
+            <RowDefinition Height="1*" />
+        </Grid.RowDefinitions>
+        <ToolBarTray Grid.Row="0" HorizontalAlignment="Center">
+            <ToolBar Name="MyToolbar" HorizontalAlignment="Center">
+                <Button Background="LightSkyBlue" Content="Compress Frames" Click="CompressMpeg_Click" />
+                <Button Background="LightSkyBlue" Content="Decompress Frames" Click="DecompressMpeg_Click" />
             </ToolBar>
         </ToolBarTray>
-        <TextBlock Name="InfoText" HorizontalAlignment="Left" Margin="10,388,0,0" TextWrapping="Wrap" VerticalAlignment="Top" Width="772" Height="21"/>
-        <Image Name="image1" HorizontalAlignment="Left" Height="353" Margin="10,35,0,0" VerticalAlignment="Top" Width="383"/>
-        <Image Name="image2"  HorizontalAlignment="Left" Height="353" Margin="399,35,0,0" VerticalAlignment="Top" Width="383"/>
+        <TextBlock Grid.Row="2" Name="InfoText" HorizontalAlignment="Center" TextWrapping="NoWrap"/>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="30*"/>
+                <ColumnDefinition Width="2*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Background="White" BorderThickness="0" Click="Prev_Click" FontSize="30" Content="&lt;" />
+            <Image Grid.Column="1" Name="image" HorizontalAlignment="Center" />
+            <Button Grid.Column="2" Background="White" BorderThickness="0" FontSize="30" Click="Next_Click" Content="&gt;" />
+        </Grid>
     </Grid>
 </Window>

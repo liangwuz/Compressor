@@ -51,34 +51,101 @@ namespace Compressor
             return JPEG.Decompress(file.Height, file.Width, file.Data);
         }
 
-        public static CompressResult CompressIPframes(string iFreamFile, string pFrameFile, string outFile)
+        //public static CompressResult CompressIPframes(string iFreamFile, string pFrameFile, string outFile)
+        //{
+        //    var i = new Bitmap(iFreamFile);
+        //    var p = new Bitmap(pFrameFile);
+
+        //    var mpeg = new MPEG(i.Height, i.Width);
+        //    byte[][] ipframes = new byte[2][];
+        //    ipframes[0] = mpeg.Compress(i, MPEG.FrameType.I);
+        //    ipframes[1] = mpeg.Compress(p, MPEG.FrameType.P);
+
+        //    // store to outFile
+        //    WriteCompressIPframes(outFile, new ImagesData(i.Height, i.Width, 1, ipframes));
+
+        //    return new CompressResult(i.Height * i.Width * 6, ipframes[0].Length + ipframes[1].Length);
+        //}
+
+        //public static Bitmap[] DecompressIPframes(string inFile)
+        //{
+        //    ImagesData data = ReadCompressIPframes(inFile);
+
+        //    var mpeg = new MPEG(data.Height, data.Width);
+
+        //    var bms = new Bitmap[2];
+
+        //    bms[0] = mpeg.Decompress(data.EncodedFrames[0], MPEG.FrameType.I);
+        //    bms[1] = mpeg.Decompress(data.EncodedFrames[1], MPEG.FrameType.P);
+
+        //    return bms;
+        //}
+
+        public static CompressResult CompressIPFrames(String[] framePaths, int iFrameGaps, String outPath)
         {
-            var i = new Bitmap(iFreamFile);
-            var p = new Bitmap(pFrameFile);
+            if (framePaths == null || framePaths.Length < 1)
+            {
+                throw new Exception("must at least have 1 frame");
+            }
 
-            var mpeg = new MPEG(i.Height, i.Width);
-            byte[] istream = mpeg.Compress(i, MPEG.FrameType.I);
-            byte[] pstream = mpeg.Compress(p, MPEG.FrameType.P);
+            int frameCount = framePaths.Length;
 
-            // store to outFile
-            WriteCompressIPframes(outFile, new ImagesData(i.Height, i.Width, istream, pstream));
+            Bitmap[] frames = new Bitmap[frameCount];
 
-            return new CompressResult(i.Height * i.Width * 6, istream.Length + pstream.Length);
+            for (int i = 0; i < frameCount; ++i)
+            {
+                frames[i] = new Bitmap(framePaths[i]);
+            }
+
+            byte[][] encodedFrames = new byte[frameCount][];
+            int height = frames[0].Height, width = frames[0].Width;
+            var mpeg = new MPEG(height, width);
+
+            int compressSize = 0;
+
+            for (int i = 0; i < frameCount; ++i)
+            {
+                if (i % iFrameGaps == 0)
+                {
+                    encodedFrames[i] = mpeg.Compress(frames[i], MPEG.FrameType.I);
+                }
+                else
+                {
+                    encodedFrames[i] = mpeg.Compress(frames[i], MPEG.FrameType.P);
+                }
+                compressSize += encodedFrames[i].Length;
+            }
+
+            WriteCompressIPframes(outPath, new ImagesData(height, width, iFrameGaps, encodedFrames));
+
+            return new CompressResult(frames[0].Height * frames[0].Width * 3 * frames.Length, compressSize);
         }
 
-        public static Bitmap[] DecompressIPframes(string inFile)
+        public static Bitmap[] DecompressIPFrames(string inFile)
         {
             ImagesData data = ReadCompressIPframes(inFile);
 
+            int numOfFrames = data.EncodedFrames.Length;
+            var bms = new Bitmap[numOfFrames];
+
             var mpeg = new MPEG(data.Height, data.Width);
-
-            var bms = new Bitmap[2];
-
-            bms[0] = mpeg.Decompress(data.Iframe, MPEG.FrameType.I);
-            bms[1] = mpeg.Decompress(data.Pframe, MPEG.FrameType.P);
+            
+            for (int i = 0; i < numOfFrames; ++i)
+            {
+                if (i % data.IFrameGap == 0)
+                {
+                    bms[i] = mpeg.Decompress(data.EncodedFrames[i], MPEG.FrameType.I);
+                }
+                else
+                {
+                    bms[i] = mpeg.Decompress(data.EncodedFrames[i], MPEG.FrameType.P);
+                }
+            }
 
             return bms;
         }
+
+
 
         #region File IO
 
@@ -135,15 +202,15 @@ namespace Compressor
         {
             public int Height;
             public int Width;
-            public byte[] Iframe;
-            public byte[] Pframe;
+            public int IFrameGap;
+            public byte[][] EncodedFrames;
 
-            public ImagesData(int height, int width, byte[] iframe, byte[] pframe)
+            public ImagesData(int height, int width, int iFrameGap, byte[][] encodedFrames)
             {
                 Height = height;
                 Width = width;
-                Iframe= iframe;
-                Pframe = pframe;
+                IFrameGap = iFrameGap;
+                EncodedFrames = encodedFrames;
             }
         };
 
@@ -154,12 +221,15 @@ namespace Compressor
 
             writer.Write(imgs.Height);
             writer.Write(imgs.Width);
+            writer.Write(imgs.IFrameGap);
+            writer.Write(imgs.EncodedFrames.Length);
 
-            writer.Write(imgs.Iframe.Length);
-            writer.Write(imgs.Iframe);
+            for (int i = 0; i < imgs.EncodedFrames.Length; ++i)
+            {
+                writer.Write(imgs.EncodedFrames[i].Length);
+                writer.Write(imgs.EncodedFrames[i]);
+            }
 
-            writer.Write(imgs.Pframe.Length);
-            writer.Write(imgs.Pframe);
 
             writer.Close();
             fs.Close();
@@ -174,12 +244,17 @@ namespace Compressor
 
             imgs.Height = reader.ReadInt32();
             imgs.Width = reader.ReadInt32();
+            imgs.IFrameGap = reader.ReadInt32();
 
-            int numOfByte = reader.ReadInt32();
-            imgs.Iframe = reader.ReadBytes(numOfByte);
+            int numOfFrames = reader.ReadInt32();
+            imgs.EncodedFrames = new byte[numOfFrames][];
 
-            numOfByte = reader.ReadInt32();
-            imgs.Pframe = reader.ReadBytes(numOfByte);
+            int numOfByte = 0;
+            for (int i = 0; i < numOfFrames; ++i)
+            {
+                numOfByte = reader.ReadInt32();
+                imgs.EncodedFrames[i] = reader.ReadBytes(numOfByte);
+            }
 
             reader.Close();
             fs.Close();
